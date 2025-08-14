@@ -1,0 +1,7 @@
+- Need a connect command to connect to a new GRPC service. Or perhaps a listener that we can have something connect to us? 
+  - We could then list out the current connections somehow. Maybe in the first tab? Catch escape to go back
+- All commands need to return a jobId or PID or something so that we can refer to it when necessary (kill it).
+  - This likely could be a message type in the protocols
+  - Could also have a jobs command so that we know what jobs there are to reference
+- If there is an attach command, this could open a new window in the client to interact with the running process.
+  - We should be able to catch escape or ctrl+z and use that to re-background the command
