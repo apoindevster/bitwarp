@@ -8,11 +8,11 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-func ConnectToServer(address string) (proto.CommandClient, error) {
+func ConnectToServer(address string) (*grpc.ClientConn, proto.CommandClient, error) {
 	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
-		return nil, err
+		return nil, nil, err
 	}
-	return proto.NewCommandClient(conn), nil
+	return conn, proto.NewCommandClient(conn), nil
 }

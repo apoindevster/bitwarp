@@ -9,6 +9,8 @@ import (
 	"github.com/apoindevster/bitwarp/proto"
 )
 
+// The following Types are the possible custom tea.Msg types
+// objects of these types get propagated back up to NotificationChan
 type RunExecutableUpdate struct {
 	appstring string
 }

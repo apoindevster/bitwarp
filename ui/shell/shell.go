@@ -1,7 +1,6 @@
 package shell
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/apoindevster/bitwarp/proto"
@@ -11,17 +10,17 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-var NotificationChan chan tea.Msg
-
 type Model struct {
 	viewPort  viewport.Model
 	textInput textinput.Model
-	conn      *proto.CommandClient
+	Conn      *proto.CommandClient
 	err       error
-	history   []string
+	history   *[]string
 }
 
-func New(client *proto.CommandClient, notif chan tea.Msg) Model {
+var NotificationChan chan tea.Msg
+
+func New(notif chan tea.Msg) Model {
 	vp := viewport.New(0, 0)
 
 	ti := textinput.New()
@@ -34,27 +33,25 @@ func New(client *proto.CommandClient, notif chan tea.Msg) Model {
 	return Model{
 		viewPort:  vp,
 		textInput: ti,
-		conn:      client,
+		Conn:      nil,
 		err:       nil,
 	}
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(
-		textinput.Blink,
-		waitForResponse(NotificationChan),
-	)
+	return nil
 }
 
-func waitForResponse(sub chan tea.Msg) tea.Cmd {
-	return func() tea.Msg {
-		return <-sub
-	}
+func (m *Model) SetCon(conn *proto.CommandClient, history *[]string) {
+	// TODO: Check to see if it is still connected
+	m.Conn = conn
+	m.history = history
+	m.viewPort.SetContent(strings.Join(*m.history, "\n"))
 }
 
 // Might want to check out the following for trying to get tea.Cmd
 // https://github.com/charmbracelet/bubbletea/tree/main/tutorials/commands
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
@@ -63,12 +60,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyEnter:
 			command, args, found := strings.Cut(m.textInput.Value(), " ")
 			if found {
-				go ExecuteCommand(command, args, m.conn)
+				// TODO: Might want to check to make sure that m.conn is not nil
+				go ExecuteCommand(command, args, m.Conn)
 			} else if m.textInput.Value() != "" {
-				go ExecuteCommand(m.textInput.Value(), "", m.conn)
+				// TODO: Might want to check to make sure that m.conn is not nil
+				go ExecuteCommand(m.textInput.Value(), "", m.Conn)
 			}
-			m.history = append(m.history, m.textInput.Value()+"\n")
-			m.viewPort.SetContent(strings.Join(m.history, "\n"))
+			*m.history = append(*m.history, m.textInput.Value()+"\n")
+			m.viewPort.SetContent(strings.Join(*m.history, "\n"))
 			m.textInput.Reset()
 			return m, nil
 		case tea.KeyCtrlC:
@@ -79,12 +78,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewPort.Height = msg.Height - lipgloss.Height(m.textInput.View())
 		m.textInput.Width = msg.Width
 	case RunExecutableUpdate:
-		m.history = append(m.history, msg.appstring)
-		m.viewPort.SetContent(strings.Join(m.history, ""))
+		*m.history = append(*m.history, msg.appstring)
+		m.viewPort.SetContent(strings.Join(*m.history, ""))
 		m.viewPort.GotoBottom()
-		return m, waitForResponse(NotificationChan)
+		return m, nil
 	case error:
-		fmt.Println("Got error message")
 		m.err = msg
 		return m, nil
 	}
