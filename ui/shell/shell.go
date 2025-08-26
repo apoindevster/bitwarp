@@ -43,14 +43,11 @@ func (m Model) Init() tea.Cmd {
 }
 
 func (m *Model) SetCon(conn *proto.CommandClient, history *[]string) {
-	// TODO: Check to see if it is still connected
 	m.Conn = conn
 	m.history = history
 	m.viewPort.SetContent(strings.Join(*m.history, "\n"))
 }
 
-// Might want to check out the following for trying to get tea.Cmd
-// https://github.com/charmbracelet/bubbletea/tree/main/tutorials/commands
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
@@ -78,6 +75,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.viewPort.Height = msg.Height - lipgloss.Height(m.textInput.View())
 		m.textInput.Width = msg.Width
 	case RunExecutableUpdate:
+		// The goroutine that executes the commands passes this message type back to the app so we can display it here.
 		*m.history = append(*m.history, msg.appstring)
 		m.viewPort.SetContent(strings.Join(*m.history, ""))
 		m.viewPort.GotoBottom()

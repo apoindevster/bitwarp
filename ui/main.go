@@ -10,8 +10,10 @@ import (
 	connshell "github.com/apoindevster/bitwarp/ui/shell"
 	tea "github.com/charmbracelet/bubbletea"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 )
 
+// Global but keeps track of all the connection in the client list.
 type Connection struct {
 	con     *grpc.ClientConn
 	comcon  *proto.CommandClient
@@ -24,12 +26,14 @@ var NotificationChan chan tea.Msg
 
 type State int
 
+// The "enum" to track state for the internal state machine
 const (
 	Conns State = iota
 	NewCon
 	Shell
 )
 
+// The model that contains the current state as well as all of the sub-models for the pages intended to be shown.
 type Model struct {
 	currMod State
 	conns   connlist.Model
@@ -37,6 +41,7 @@ type Model struct {
 	shell   connshell.Model
 }
 
+// New function to return the ELM architecture model.
 func New(notif chan tea.Msg) Model {
 	NotificationChan = notif
 
@@ -53,6 +58,7 @@ func New(notif chan tea.Msg) Model {
 
 }
 
+// Go to the previous page in the BitWarp application
 func (m *Model) decrementPage() {
 	switch m.currMod {
 	default:
@@ -60,6 +66,7 @@ func (m *Model) decrementPage() {
 	}
 }
 
+// Call the ELM Architecture update function for all the sub-models in this model
 func (m *Model) updateAllModels(msg tea.Msg) tea.Cmd {
 	var concmd, newcmd, shcmd tea.Cmd
 	m.conns, concmd = m.conns.Update(msg)
@@ -70,19 +77,23 @@ func (m *Model) updateAllModels(msg tea.Msg) tea.Cmd {
 
 }
 
+// This function serves as a way to pass custom tea.Msg types between the models. This also makes it much more event driven.
 func waitForResponse(sub chan tea.Msg) tea.Cmd {
 	return func() tea.Msg {
 		return <-sub
 	}
 }
 
+// This implementation of the BubbleTea interface is currently used as an interface to the state machine that is all the various pages in the BitWarp client.
+// See the various modules that also implement the BubbleTea interface for more information on the business logic for the individual pages.
 func (m Model) Init() tea.Cmd {
 	return waitForResponse(NotificationChan)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// TODO: Need to check on our own custom messages and call return m, waitForResponse(NotifcationChan) if it is a custom one
 	switch msg := msg.(type) {
+	// The following messages are messages that are custom BitWarp tea.Msg messages. They come from the returned function from waitForResponse and allow
+	// for an event driven architecture.
 	case connlist.NewConnReq:
 		m.currMod = NewCon
 		return m, waitForResponse(NotificationChan)
@@ -100,7 +111,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// TODO This will also need to validate that the connection is still alive
+		if clients[msg.Id].con.GetState() == connectivity.Shutdown {
+			// Connection has been or is shutting down.
+			return m, waitForResponse(NotificationChan)
+		}
+
 		m.currMod = Shell
 		m.shell.SetCon(clients[msg.Id].comcon, &clients[msg.Id].history)
 		return m, waitForResponse(NotificationChan)
@@ -126,18 +141,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			shcmd,
 			waitForResponse(NotificationChan),
 		)
+	// The following are built-in tea messages from BubbleTea.
 	case tea.KeyMsg:
 		switch msg.Type {
+		// Allow it to go back to the previous page/state.
 		case tea.KeyEscape:
 			m.decrementPage()
 			return m, nil
 		}
 	case tea.WindowSizeMsg:
+		// Send this window size message to all of the possible pages you can be in so that when you switch between BitWarp windows, the sizes will be correct.
 		cmd := m.updateAllModels(msg)
 		return m, cmd
 	}
 
-	// TODO: Need to check for the escape key. If it is pressed, go back to the previous screen
+	// Any other keys or message types should be funneled down to the currently active page.
 	var cmd tea.Cmd
 	switch m.currMod {
 	case Conns:
@@ -152,6 +170,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
+	// Conditional UI based upon the current view in the state machine.
 	switch m.currMod {
 	case Conns:
 		return m.conns.View()
@@ -165,8 +184,6 @@ func (m Model) View() string {
 }
 
 func main() {
-	// TODO: Upgrade the commandclient library to have hooks into the underlying connection.GetState()
-	// This will be needed if tracking the connection state is necessary
 	notif := make(chan tea.Msg)
 
 	Prog = tea.NewProgram(New(notif), tea.WithAltScreen())

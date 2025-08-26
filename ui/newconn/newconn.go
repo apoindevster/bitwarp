@@ -114,6 +114,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		switch msg.String() {
 		case "enter":
 			go SendNewConnection(m.desc.Value(), m.ip.Value(), m.port.Value())
+			// TODO: Implement more elegant way of doing this
 			m.desc.Reset()
 			m.ip.Reset()
 			m.port.Reset()
@@ -143,6 +144,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	)
 }
 
+// TODO: Could update this so that the fields are much nicer looking instead of just using an input box
 func (m Model) View() string {
 	return "Description " + m.desc.View() + "\nIP " + m.ip.View() + "\nPort " + m.port.View()
 }

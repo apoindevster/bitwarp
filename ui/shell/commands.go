@@ -56,10 +56,10 @@ func ExecuteCommand(command string, args string, client *proto.CommandClient) er
 	case "exec":
 		return RunExecutableCommand(args, client)
 	case "upload":
-		// TODO
+		// TODO file upload: Awaiting progress bar in new window that will keep track of all of the commands that have been run by a client
 		return nil
 	case "download":
-		// TODO
+		// TODO file download: Awaiting progress bar in new window that will keep track of all of the commands that have been run by the client
 		return nil
 	}
 

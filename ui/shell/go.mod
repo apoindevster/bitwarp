@@ -3,11 +3,11 @@ module shell
 go 1.23.2
 
 require (
+	github.com/apoindevster/bitwarp v0.0.0-unpublished
+	github.com/apoindevster/bitwarp/commandclient v0.0.0-unpublished
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.4
 	github.com/charmbracelet/lipgloss v1.1.0
-	github.com/apoindevster/bitwarp v0.0.0-unpublished
-	github.com/apoindevster/bitwarp/commandclient v0.0.0-unpublished
 )
 
 require (
