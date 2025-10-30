@@ -9,6 +9,7 @@ require (
 	github.com/apoindevster/bitwarp/ui/newconn v0.0.0-unpublished
 	github.com/apoindevster/bitwarp/ui/shell v0.0.0-unpublished
 	github.com/charmbracelet/bubbletea v1.3.6
+	github.com/google/uuid v1.6.0
 	google.golang.org/grpc v1.73.0
 )
 
@@ -49,3 +50,5 @@ replace github.com/apoindevster/bitwarp/ui/shell => ./shell
 replace github.com/apoindevster/bitwarp/ui/connlist => ./connlist
 
 replace github.com/apoindevster/bitwarp/ui/newconn => ./newconn
+
+replace github.com/apoindevster/bitwarp/ui/db => ./db

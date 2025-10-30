@@ -9,12 +9,15 @@ import (
 	newconn "github.com/apoindevster/bitwarp/ui/newconn"
 	connshell "github.com/apoindevster/bitwarp/ui/shell"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 )
 
 // Global but keeps track of all the connection in the client list.
+// TODO: Find a better way to track con and comcon simultaneously
 type Connection struct {
+	conid   uuid.UUID
 	con     *grpc.ClientConn
 	comcon  *proto.CommandClient
 	history []string
@@ -121,12 +124,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitForResponse(NotificationChan)
 	case newconn.NewConnParams:
 		m.currMod = Conns
-		con, comcon, err := CreateNewConnection(msg)
+		con, err := CreateNewConnection(msg)
 		if err != nil {
 			return m, waitForResponse(NotificationChan)
 		}
 
-		newCon := Connection{con: con, comcon: comcon, history: []string{}}
+		// We can go ahead and create the command client
+		client := proto.NewCommandClient(con)
+
+		newCon := Connection{con: con, comcon: &client, history: []string{}}
 		clients = append(clients, newCon)
 		newconns, concmd := m.conns.Update(connlist.NewConnReq{Item: connlist.Item{T: msg.Desc, Desc: msg.Ip + ":" + strconv.Itoa(msg.Port)}})
 		m.conns = newconns

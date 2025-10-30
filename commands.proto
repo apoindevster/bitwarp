@@ -5,6 +5,11 @@ option go_package="./proto";
 
 import "google/protobuf/empty.proto";
 
+// Connection Identifier
+message ConnectionParams {
+    bytes uuid = 1;
+}
+
 // Run Executable
 message RunExecutableOptions {
     string command = 1;
@@ -31,6 +36,7 @@ message FileChunk {
 // HashFile
 
 service Command {
+    rpc GetConnectionParams(google.protobuf.Empty) returns (ConnectionParams) {}
     rpc RunExecutable(stream RunExecutableInput) returns (stream RunExecutableResult) {}
     rpc FileUpload(stream FileChunk) returns (google.protobuf.Empty) {}
     rpc FileDownload(FileChunk) returns (stream FileChunk) {}

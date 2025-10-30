@@ -3,6 +3,7 @@ package shell
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"strings"
 
 	"github.com/apoindevster/bitwarp/commandclient"
@@ -61,7 +62,9 @@ func ExecuteCommand(command string, args string, client *proto.CommandClient) er
 	case "download":
 		// TODO file download: Awaiting progress bar in new window that will keep track of all of the commands that have been run by the client
 		return nil
+	default:
+		// For now, just append the invalid to the history as a RunExecutableUpdate
+		NotificationChan <- RunExecutableUpdate{appstring: fmt.Sprintf("Unrecognized command %s\n", command)}
+		return nil
 	}
-
-	return nil
 }

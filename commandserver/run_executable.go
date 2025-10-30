@@ -105,15 +105,3 @@ finished:
 	stream.Send(&proto.RunExecutableResult{ReturnCode: int32(returnCode)})
 	return nil
 }
-
-// When I add websocket support, I should add the ability to marshall stdout, stderr, and stdin
-//type RunCommand struct {
-//	Command string   `json:"path"`
-//	Args    []string `json:"args"`
-//}
-//
-//type RunCommandResult struct {
-//	JobId  int    `json:"jobId"`
-//	Stdout string `json:"stdout"`
-//	//stderr string `json:"stderr"`
-//}

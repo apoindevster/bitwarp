@@ -3,9 +3,9 @@ module bitwarp-server
 go 1.23.2
 
 require (
-	google.golang.org/grpc v1.73.0
 	github.com/apoindevster/bitwarp v0.0.0-unpublished
 	github.com/apoindevster/bitwarp/commandserver v0.0.0-unpublished
+	google.golang.org/grpc v1.73.0
 )
 
 require (

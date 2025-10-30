@@ -22,6 +22,51 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Connection Identifier
+type ConnectionParams struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Uuid          []byte                 `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConnectionParams) Reset() {
+	*x = ConnectionParams{}
+	mi := &file_commands_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConnectionParams) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConnectionParams) ProtoMessage() {}
+
+func (x *ConnectionParams) ProtoReflect() protoreflect.Message {
+	mi := &file_commands_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConnectionParams.ProtoReflect.Descriptor instead.
+func (*ConnectionParams) Descriptor() ([]byte, []int) {
+	return file_commands_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *ConnectionParams) GetUuid() []byte {
+	if x != nil {
+		return x.Uuid
+	}
+	return nil
+}
+
 // Run Executable
 type RunExecutableOptions struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -33,7 +78,7 @@ type RunExecutableOptions struct {
 
 func (x *RunExecutableOptions) Reset() {
 	*x = RunExecutableOptions{}
-	mi := &file_commands_proto_msgTypes[0]
+	mi := &file_commands_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -45,7 +90,7 @@ func (x *RunExecutableOptions) String() string {
 func (*RunExecutableOptions) ProtoMessage() {}
 
 func (x *RunExecutableOptions) ProtoReflect() protoreflect.Message {
-	mi := &file_commands_proto_msgTypes[0]
+	mi := &file_commands_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -58,7 +103,7 @@ func (x *RunExecutableOptions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunExecutableOptions.ProtoReflect.Descriptor instead.
 func (*RunExecutableOptions) Descriptor() ([]byte, []int) {
-	return file_commands_proto_rawDescGZIP(), []int{0}
+	return file_commands_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *RunExecutableOptions) GetCommand() string {
@@ -85,7 +130,7 @@ type RunExecutableInput struct {
 
 func (x *RunExecutableInput) Reset() {
 	*x = RunExecutableInput{}
-	mi := &file_commands_proto_msgTypes[1]
+	mi := &file_commands_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -97,7 +142,7 @@ func (x *RunExecutableInput) String() string {
 func (*RunExecutableInput) ProtoMessage() {}
 
 func (x *RunExecutableInput) ProtoReflect() protoreflect.Message {
-	mi := &file_commands_proto_msgTypes[1]
+	mi := &file_commands_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -110,7 +155,7 @@ func (x *RunExecutableInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunExecutableInput.ProtoReflect.Descriptor instead.
 func (*RunExecutableInput) Descriptor() ([]byte, []int) {
-	return file_commands_proto_rawDescGZIP(), []int{1}
+	return file_commands_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *RunExecutableInput) GetOptions() *RunExecutableOptions {
@@ -138,7 +183,7 @@ type RunExecutableResult struct {
 
 func (x *RunExecutableResult) Reset() {
 	*x = RunExecutableResult{}
-	mi := &file_commands_proto_msgTypes[2]
+	mi := &file_commands_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -150,7 +195,7 @@ func (x *RunExecutableResult) String() string {
 func (*RunExecutableResult) ProtoMessage() {}
 
 func (x *RunExecutableResult) ProtoReflect() protoreflect.Message {
-	mi := &file_commands_proto_msgTypes[2]
+	mi := &file_commands_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -163,7 +208,7 @@ func (x *RunExecutableResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunExecutableResult.ProtoReflect.Descriptor instead.
 func (*RunExecutableResult) Descriptor() ([]byte, []int) {
-	return file_commands_proto_rawDescGZIP(), []int{2}
+	return file_commands_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *RunExecutableResult) GetReturnCode() int32 {
@@ -198,7 +243,7 @@ type FileChunk struct {
 
 func (x *FileChunk) Reset() {
 	*x = FileChunk{}
-	mi := &file_commands_proto_msgTypes[3]
+	mi := &file_commands_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -210,7 +255,7 @@ func (x *FileChunk) String() string {
 func (*FileChunk) ProtoMessage() {}
 
 func (x *FileChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_commands_proto_msgTypes[3]
+	mi := &file_commands_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -223,7 +268,7 @@ func (x *FileChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileChunk.ProtoReflect.Descriptor instead.
 func (*FileChunk) Descriptor() ([]byte, []int) {
-	return file_commands_proto_rawDescGZIP(), []int{3}
+	return file_commands_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *FileChunk) GetPath() string {
@@ -244,7 +289,9 @@ var File_commands_proto protoreflect.FileDescriptor
 
 const file_commands_proto_rawDesc = "" +
 	"\n" +
-	"\x0ecommands.proto\x12\x05proto\x1a\x1bgoogle/protobuf/empty.proto\"D\n" +
+	"\x0ecommands.proto\x12\x05proto\x1a\x1bgoogle/protobuf/empty.proto\"&\n" +
+	"\x10ConnectionParams\x12\x12\n" +
+	"\x04uuid\x18\x01 \x01(\fR\x04uuid\"D\n" +
 	"\x14RunExecutableOptions\x12\x18\n" +
 	"\acommand\x18\x01 \x01(\tR\acommand\x12\x12\n" +
 	"\x04args\x18\x02 \x03(\tR\x04args\"a\n" +
@@ -259,8 +306,9 @@ const file_commands_proto_rawDesc = "" +
 	"\x06stderr\x18\x03 \x01(\fR\x06stderr\"5\n" +
 	"\tFileChunk\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x14\n" +
-	"\x05chunk\x18\x02 \x01(\fR\x05chunk2\xcb\x01\n" +
-	"\aCommand\x12L\n" +
+	"\x05chunk\x18\x02 \x01(\fR\x05chunk2\x95\x02\n" +
+	"\aCommand\x12H\n" +
+	"\x13GetConnectionParams\x12\x16.google.protobuf.Empty\x1a\x17.proto.ConnectionParams\"\x00\x12L\n" +
 	"\rRunExecutable\x12\x19.proto.RunExecutableInput\x1a\x1a.proto.RunExecutableResult\"\x00(\x010\x01\x12:\n" +
 	"\n" +
 	"FileUpload\x12\x10.proto.FileChunk\x1a\x16.google.protobuf.Empty\"\x00(\x01\x126\n" +
@@ -278,24 +326,27 @@ func file_commands_proto_rawDescGZIP() []byte {
 	return file_commands_proto_rawDescData
 }
 
-var file_commands_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_commands_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_commands_proto_goTypes = []any{
-	(*RunExecutableOptions)(nil), // 0: proto.RunExecutableOptions
-	(*RunExecutableInput)(nil),   // 1: proto.RunExecutableInput
-	(*RunExecutableResult)(nil),  // 2: proto.RunExecutableResult
-	(*FileChunk)(nil),            // 3: proto.FileChunk
-	(*emptypb.Empty)(nil),        // 4: google.protobuf.Empty
+	(*ConnectionParams)(nil),     // 0: proto.ConnectionParams
+	(*RunExecutableOptions)(nil), // 1: proto.RunExecutableOptions
+	(*RunExecutableInput)(nil),   // 2: proto.RunExecutableInput
+	(*RunExecutableResult)(nil),  // 3: proto.RunExecutableResult
+	(*FileChunk)(nil),            // 4: proto.FileChunk
+	(*emptypb.Empty)(nil),        // 5: google.protobuf.Empty
 }
 var file_commands_proto_depIdxs = []int32{
-	0, // 0: proto.RunExecutableInput.options:type_name -> proto.RunExecutableOptions
-	1, // 1: proto.Command.RunExecutable:input_type -> proto.RunExecutableInput
-	3, // 2: proto.Command.FileUpload:input_type -> proto.FileChunk
-	3, // 3: proto.Command.FileDownload:input_type -> proto.FileChunk
-	2, // 4: proto.Command.RunExecutable:output_type -> proto.RunExecutableResult
-	4, // 5: proto.Command.FileUpload:output_type -> google.protobuf.Empty
-	3, // 6: proto.Command.FileDownload:output_type -> proto.FileChunk
-	4, // [4:7] is the sub-list for method output_type
-	1, // [1:4] is the sub-list for method input_type
+	1, // 0: proto.RunExecutableInput.options:type_name -> proto.RunExecutableOptions
+	5, // 1: proto.Command.GetConnectionParams:input_type -> google.protobuf.Empty
+	2, // 2: proto.Command.RunExecutable:input_type -> proto.RunExecutableInput
+	4, // 3: proto.Command.FileUpload:input_type -> proto.FileChunk
+	4, // 4: proto.Command.FileDownload:input_type -> proto.FileChunk
+	0, // 5: proto.Command.GetConnectionParams:output_type -> proto.ConnectionParams
+	3, // 6: proto.Command.RunExecutable:output_type -> proto.RunExecutableResult
+	5, // 7: proto.Command.FileUpload:output_type -> google.protobuf.Empty
+	4, // 8: proto.Command.FileDownload:output_type -> proto.FileChunk
+	5, // [5:9] is the sub-list for method output_type
+	1, // [1:5] is the sub-list for method input_type
 	1, // [1:1] is the sub-list for extension type_name
 	1, // [1:1] is the sub-list for extension extendee
 	0, // [0:1] is the sub-list for field type_name
@@ -312,7 +363,7 @@ func file_commands_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_commands_proto_rawDesc), len(file_commands_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

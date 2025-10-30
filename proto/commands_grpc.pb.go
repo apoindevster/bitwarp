@@ -20,15 +20,17 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Command_RunExecutable_FullMethodName = "/proto.Command/RunExecutable"
-	Command_FileUpload_FullMethodName    = "/proto.Command/FileUpload"
-	Command_FileDownload_FullMethodName  = "/proto.Command/FileDownload"
+	Command_GetConnectionParams_FullMethodName = "/proto.Command/GetConnectionParams"
+	Command_RunExecutable_FullMethodName       = "/proto.Command/RunExecutable"
+	Command_FileUpload_FullMethodName          = "/proto.Command/FileUpload"
+	Command_FileDownload_FullMethodName        = "/proto.Command/FileDownload"
 )
 
 // CommandClient is the client API for Command service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type CommandClient interface {
+	GetConnectionParams(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ConnectionParams, error)
 	RunExecutable(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[RunExecutableInput, RunExecutableResult], error)
 	FileUpload(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[FileChunk, emptypb.Empty], error)
 	FileDownload(ctx context.Context, in *FileChunk, opts ...grpc.CallOption) (grpc.ServerStreamingClient[FileChunk], error)
@@ -40,6 +42,16 @@ type commandClient struct {
 
 func NewCommandClient(cc grpc.ClientConnInterface) CommandClient {
 	return &commandClient{cc}
+}
+
+func (c *commandClient) GetConnectionParams(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ConnectionParams, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ConnectionParams)
+	err := c.cc.Invoke(ctx, Command_GetConnectionParams_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *commandClient) RunExecutable(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[RunExecutableInput, RunExecutableResult], error) {
@@ -91,6 +103,7 @@ type Command_FileDownloadClient = grpc.ServerStreamingClient[FileChunk]
 // All implementations must embed UnimplementedCommandServer
 // for forward compatibility.
 type CommandServer interface {
+	GetConnectionParams(context.Context, *emptypb.Empty) (*ConnectionParams, error)
 	RunExecutable(grpc.BidiStreamingServer[RunExecutableInput, RunExecutableResult]) error
 	FileUpload(grpc.ClientStreamingServer[FileChunk, emptypb.Empty]) error
 	FileDownload(*FileChunk, grpc.ServerStreamingServer[FileChunk]) error
@@ -104,6 +117,9 @@ type CommandServer interface {
 // pointer dereference when methods are called.
 type UnimplementedCommandServer struct{}
 
+func (UnimplementedCommandServer) GetConnectionParams(context.Context, *emptypb.Empty) (*ConnectionParams, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetConnectionParams not implemented")
+}
 func (UnimplementedCommandServer) RunExecutable(grpc.BidiStreamingServer[RunExecutableInput, RunExecutableResult]) error {
 	return status.Errorf(codes.Unimplemented, "method RunExecutable not implemented")
 }
@@ -132,6 +148,24 @@ func RegisterCommandServer(s grpc.ServiceRegistrar, srv CommandServer) {
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&Command_ServiceDesc, srv)
+}
+
+func _Command_GetConnectionParams_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CommandServer).GetConnectionParams(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Command_GetConnectionParams_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CommandServer).GetConnectionParams(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _Command_RunExecutable_Handler(srv interface{}, stream grpc.ServerStream) error {
@@ -165,7 +199,12 @@ type Command_FileDownloadServer = grpc.ServerStreamingServer[FileChunk]
 var Command_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "proto.Command",
 	HandlerType: (*CommandServer)(nil),
-	Methods:     []grpc.MethodDesc{},
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "GetConnectionParams",
+			Handler:    _Command_GetConnectionParams_Handler,
+		},
+	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "RunExecutable",
