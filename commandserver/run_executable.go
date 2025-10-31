@@ -32,6 +32,7 @@ func (s *Server) RunExecutable(stream grpc.BidiStreamingServer[proto.RunExecutab
 
 	Logger.Infof("Starting command %s %s", options.GetOptions().Command, strings.Join(options.GetOptions().Args, " "))
 	command := exec.Command(options.GetOptions().Command, options.GetOptions().Args...)
+	ctx := stream.Context()
 
 	stdout, err := command.StdoutPipe()
 	if err != nil {
@@ -62,6 +63,7 @@ func (s *Server) RunExecutable(stream grpc.BidiStreamingServer[proto.RunExecutab
 
 	stdoutFinished := false
 	stderrFinished := false
+	cancelled := false
 finished:
 	for {
 		select {
@@ -77,6 +79,11 @@ finished:
 			} else {
 				stderrFinished = true
 			}
+		case <-ctx.Done():
+			cancelled = true
+			if command.Process != nil && command.ProcessState == nil {
+				_ = command.Process.Kill()
+			}
 		}
 
 		if (stdoutFinished && stderrFinished) || command.ProcessState != nil {
@@ -86,6 +93,11 @@ finished:
 	Logger.Infof("Finishing command %s %s", options.GetOptions().Command, strings.Join(options.GetOptions().Args, " "))
 	err = command.Wait()
 	if err != nil {
+		if cancelled {
+			returnCode = -2
+			stream.Send(&proto.RunExecutableResult{ReturnCode: int32(returnCode)})
+			return nil
+		}
 		if exitError, ok := err.(*exec.ExitError); ok {
 			// We were able to cast the error. Now see if we can get the wait status
 			if ws, ok := exitError.Sys().(syscall.WaitStatus); ok {

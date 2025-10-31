@@ -1,7 +1,5 @@
 - Use yamux to do bi-directional instantation of the grpc service
 - Get stdin working
-- Have a jobs page for each connection. That way we can terminate commands or interact with them
 - Have an import hotkey on the connlist page that will take json configuration for connection instantiation
-- Be able to run a single command in all of the connections in the connlist page
 - Add command line flags to server and ui on startup
 - Implement and add documentation for running BitWarp as a service

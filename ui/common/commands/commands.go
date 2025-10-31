@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"io"
@@ -19,7 +20,7 @@ type Callbacks struct {
 
 // RunExecutableCommand parses the exec argument string, streams stdout/stderr through callbacks,
 // and returns the remote process exit code.
-func RunExecutableCommand(argLine string, client *proto.CommandClient, cb Callbacks) (int32, error) {
+func RunExecutableCommand(ctx context.Context, argLine string, client *proto.CommandClient, cb Callbacks) (int32, error) {
 	if client == nil {
 		return -1, errors.New("command client is not initialized")
 	}
@@ -30,7 +31,6 @@ func RunExecutableCommand(argLine string, client *proto.CommandClient, cb Callba
 	}
 
 	dataChan := commandclient.MakeExecutableDataChan()
-	completed := make(chan struct{})
 
 	go func() {
 		for {
@@ -43,17 +43,19 @@ func RunExecutableCommand(argLine string, client *proto.CommandClient, cb Callba
 				if errBytes != nil && cb.Stderr != nil {
 					cb.Stderr(errBytes)
 				}
-			case <-completed:
+			case <-ctx.Done():
 				return
 			}
 		}
 	}()
 
-	retCode := commandclient.RunExecutable(execPath, execArgs, &dataChan, client)
-	completed <- struct{}{}
-
+	retCode := commandclient.RunExecutable(ctx, execPath, execArgs, &dataChan, client)
 	if cb.Complete != nil {
 		cb.Complete(retCode)
+	}
+
+	if ctx.Err() != nil {
+		return retCode, ctx.Err()
 	}
 
 	return retCode, nil
@@ -61,10 +63,10 @@ func RunExecutableCommand(argLine string, client *proto.CommandClient, cb Callba
 
 // ExecuteCommand interprets the top-level command and delegates to the appropriate handler.
 // Currently, only the "exec" command is supported.
-func ExecuteCommand(command string, args string, client *proto.CommandClient, cb Callbacks) (int32, error) {
+func ExecuteCommand(ctx context.Context, command string, args string, client *proto.CommandClient, cb Callbacks) (int32, error) {
 	switch command {
 	case "exec":
-		return RunExecutableCommand(args, client, cb)
+		return RunExecutableCommand(ctx, args, client, cb)
 	case "":
 		if cb.Complete != nil {
 			cb.Complete(0)
