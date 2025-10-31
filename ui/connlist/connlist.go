@@ -17,19 +17,20 @@ type keyMap struct {
 	AddConn  key.Binding
 	DelConn  key.Binding
 	Interact key.Binding
+	RunAll   key.Binding
 }
 
 // ShortHelp returns keybindings to be shown in the mini help view. It's part
 // of the key.Map interface.
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.AddConn, k.DelConn, k.Interact}
+	return []key.Binding{k.AddConn, k.DelConn, k.Interact, k.RunAll}
 }
 
 // FullHelp returns keybindings for the expanded help view. It's part of the
 // key.Map interface.
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.AddConn, k.DelConn, k.Interact}, // first column
+		{k.AddConn, k.DelConn, k.Interact, k.RunAll}, // first column
 	}
 }
 
@@ -45,6 +46,10 @@ var keys = keyMap{
 	Interact: key.NewBinding(
 		key.WithKeys("i", "enter"),
 		key.WithHelp("i/enter", "Interact with current Connection"),
+	),
+	RunAll: key.NewBinding(
+		key.WithKeys("r", "R"),
+		key.WithHelp("r/R", "Run command across all Connections"),
 	),
 }
 
@@ -63,6 +68,7 @@ type DelConnReq struct {
 type InteractConnReq struct {
 	Id int
 }
+type RunAllConnReq struct{}
 
 // End
 
@@ -102,6 +108,10 @@ func Interact(idx int) {
 	NotificationChan <- InteractConnReq{Id: idx}
 }
 
+func RunAll() {
+	NotificationChan <- RunAllConnReq{}
+}
+
 func (m Model) Init() tea.Cmd {
 	return nil
 }
@@ -116,6 +126,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			go DeleteItem(m.List.GlobalIndex())
 		case key.Matches(msg, m.keys.Interact):
 			go Interact(m.List.GlobalIndex())
+		case key.Matches(msg, m.keys.RunAll):
+			go RunAll()
 		}
 	case tea.WindowSizeMsg:
 		m.List.SetSize(msg.Width, msg.Height-lipgloss.Height(m.Help.View(m.keys)))
