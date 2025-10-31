@@ -19,19 +19,20 @@ type keyMap struct {
 	Interact key.Binding
 	RunAll   key.Binding
 	Jobs     key.Binding
+	Import   key.Binding
 }
 
 // ShortHelp returns keybindings to be shown in the mini help view. It's part
 // of the key.Map interface.
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.AddConn, k.DelConn, k.Interact, k.RunAll, k.Jobs}
+	return []key.Binding{k.AddConn, k.DelConn, k.Interact, k.RunAll, k.Jobs, k.Import}
 }
 
 // FullHelp returns keybindings for the expanded help view. It's part of the
 // key.Map interface.
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.AddConn, k.DelConn, k.Interact, k.RunAll, k.Jobs}, // first column
+		{k.AddConn, k.DelConn, k.Interact, k.RunAll, k.Jobs, k.Import}, // first column
 	}
 }
 
@@ -56,6 +57,10 @@ var keys = keyMap{
 		key.WithKeys("j", "J"),
 		key.WithHelp("j/J", "View Jobs for current Connection"),
 	),
+	Import: key.NewBinding(
+		key.WithKeys("p", "P"),
+		key.WithHelp("p/P", "Import command batch"),
+	),
 }
 
 type Item struct {
@@ -75,6 +80,9 @@ type InteractConnReq struct {
 }
 type RunAllConnReq struct{}
 type ShowJobsReq struct {
+	Id int
+}
+type ImportCommandsReq struct {
 	Id int
 }
 
@@ -123,6 +131,10 @@ func RunAll() {
 func ShowJobs(idx int) {
 	NotificationChan <- ShowJobsReq{Id: idx}
 }
+
+func ImportCommands(idx int) {
+	NotificationChan <- ImportCommandsReq{Id: idx}
+}
 func (m Model) Init() tea.Cmd {
 	return nil
 }
@@ -141,6 +153,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			go RunAll()
 		case key.Matches(msg, m.keys.Jobs):
 			go ShowJobs(m.List.GlobalIndex())
+		case key.Matches(msg, m.keys.Import):
+			go ImportCommands(m.List.GlobalIndex())
 		}
 	case tea.WindowSizeMsg:
 		m.List.SetSize(msg.Width, msg.Height-lipgloss.Height(m.Help.View(m.keys)))

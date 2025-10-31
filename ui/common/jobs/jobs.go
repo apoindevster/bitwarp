@@ -18,6 +18,7 @@ type Source string
 const (
 	SourceShell  Source = "shell"
 	SourceRunAll Source = "runall"
+	SourceImport Source = "import"
 )
 
 type StartedMsg struct {

@@ -1,5 +1,4 @@
 - Use yamux to do bi-directional instantation of the grpc service
 - Get stdin working
-- Have an import hotkey on the connlist page that will take json configuration for connection instantiation
 - Add command line flags to server and ui on startup
 - Implement and add documentation for running BitWarp as a service
