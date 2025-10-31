@@ -18,19 +18,20 @@ type keyMap struct {
 	DelConn  key.Binding
 	Interact key.Binding
 	RunAll   key.Binding
+	Jobs     key.Binding
 }
 
 // ShortHelp returns keybindings to be shown in the mini help view. It's part
 // of the key.Map interface.
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.AddConn, k.DelConn, k.Interact, k.RunAll}
+	return []key.Binding{k.AddConn, k.DelConn, k.Interact, k.RunAll, k.Jobs}
 }
 
 // FullHelp returns keybindings for the expanded help view. It's part of the
 // key.Map interface.
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.AddConn, k.DelConn, k.Interact, k.RunAll}, // first column
+		{k.AddConn, k.DelConn, k.Interact, k.RunAll, k.Jobs}, // first column
 	}
 }
 
@@ -51,6 +52,10 @@ var keys = keyMap{
 		key.WithKeys("r", "R"),
 		key.WithHelp("r/R", "Run command across all Connections"),
 	),
+	Jobs: key.NewBinding(
+		key.WithKeys("j", "J"),
+		key.WithHelp("j/J", "View Jobs for current Connection"),
+	),
 }
 
 type Item struct {
@@ -69,6 +74,9 @@ type InteractConnReq struct {
 	Id int
 }
 type RunAllConnReq struct{}
+type ShowJobsReq struct {
+	Id int
+}
 
 // End
 
@@ -112,6 +120,9 @@ func RunAll() {
 	NotificationChan <- RunAllConnReq{}
 }
 
+func ShowJobs(idx int) {
+	NotificationChan <- ShowJobsReq{Id: idx}
+}
 func (m Model) Init() tea.Cmd {
 	return nil
 }
@@ -128,6 +139,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			go Interact(m.List.GlobalIndex())
 		case key.Matches(msg, m.keys.RunAll):
 			go RunAll()
+		case key.Matches(msg, m.keys.Jobs):
+			go ShowJobs(m.List.GlobalIndex())
 		}
 	case tea.WindowSizeMsg:
 		m.List.SetSize(msg.Width, msg.Height-lipgloss.Height(m.Help.View(m.keys)))

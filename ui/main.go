@@ -4,10 +4,14 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/apoindevster/bitwarp/proto"
 	commoncommands "github.com/apoindevster/bitwarp/ui/common/commands"
+	jobmsgs "github.com/apoindevster/bitwarp/ui/common/jobs"
 	connlist "github.com/apoindevster/bitwarp/ui/connlist"
+	jobdetail "github.com/apoindevster/bitwarp/ui/jobdetail"
+	joblist "github.com/apoindevster/bitwarp/ui/joblist"
 	newconn "github.com/apoindevster/bitwarp/ui/newconn"
 	runall "github.com/apoindevster/bitwarp/ui/runall"
 	connshell "github.com/apoindevster/bitwarp/ui/shell"
@@ -33,6 +37,26 @@ type runAllResultMsg struct {
 	ReturnCode int32
 }
 
+type JobStatus string
+
+const (
+	JobStatusRunning   JobStatus = "running"
+	JobStatusCompleted JobStatus = "completed"
+)
+
+type Job struct {
+	ID            uuid.UUID
+	ConnectionID  uuid.UUID
+	Command       string
+	Source        jobmsgs.Source
+	Stdout        []string
+	Stderr        []string
+	ReturnCode    *int32
+	StartedAt     time.Time
+	CompletedAt   *time.Time
+	LastUpdatedAt time.Time
+}
+
 // Global but keeps track of all the connection in the client list.
 // TODO: Find a better way to track con and comcon simultaneously
 type Connection struct {
@@ -54,16 +78,23 @@ const (
 	NewCon
 	Shell
 	RunAll
+	Jobs
+	JobDetail
 )
 
 // The model that contains the current state as well as all of the sub-models for the pages intended to be shown.
 type Model struct {
-	currMod State
-	conns   connlist.Model
-	newCon  newconn.Model
-	runAll  runall.Model
-	shell   connshell.Model
-	active  uuid.UUID
+	currMod          State
+	conns            connlist.Model
+	newCon           newconn.Model
+	runAll           runall.Model
+	shell            connshell.Model
+	jobList          joblist.Model
+	jobDet           jobdetail.Model
+	active           uuid.UUID
+	jobsByConnection map[uuid.UUID][]*Job
+	jobIndex         map[uuid.UUID]*Job
+	selectedJob      uuid.UUID
 }
 
 // New function to return the ELM architecture model.
@@ -73,15 +104,21 @@ func New(notif chan tea.Msg) Model {
 	connl := connlist.New(NotificationChan)
 	nc := newconn.New(NotificationChan)
 	ra := runall.New(NotificationChan)
+	jl := joblist.New(NotificationChan)
+	jd := jobdetail.New()
 	sh := connshell.New(NotificationChan)
 
 	return Model{
-		currMod: Conns,
-		conns:   connl,
-		newCon:  nc,
-		runAll:  ra,
-		shell:   sh,
-		active:  uuid.Nil,
+		currMod:          Conns,
+		conns:            connl,
+		newCon:           nc,
+		runAll:           ra,
+		shell:            sh,
+		jobList:          jl,
+		jobDet:           jd,
+		active:           uuid.Nil,
+		jobsByConnection: make(map[uuid.UUID][]*Job),
+		jobIndex:         make(map[uuid.UUID]*Job),
 	}
 
 }
@@ -91,22 +128,30 @@ func (m *Model) decrementPage() {
 	switch m.currMod {
 	case Shell:
 		m.active = uuid.Nil
+		m.currMod = Conns
+	case RunAll:
+		m.currMod = Conns
+	case Jobs:
+		m.currMod = Conns
+	case JobDetail:
+		m.currMod = Jobs
+		m.selectedJob = uuid.Nil
 	default:
 		m.currMod = Conns
-		return
 	}
-	m.currMod = Conns
 }
 
 // Call the ELM Architecture update function for all the sub-models in this model
 func (m *Model) updateAllModels(msg tea.Msg) tea.Cmd {
-	var concmd, newcmd, runCmd, shcmd tea.Cmd
+	var concmd, newcmd, runCmd, jobCmd, detCmd, shcmd tea.Cmd
 	m.conns, concmd = m.conns.Update(msg)
 	m.newCon, newcmd = m.newCon.Update(msg)
 	m.runAll, runCmd = m.runAll.Update(msg)
+	m.jobList, jobCmd = m.jobList.Update(msg)
+	m.jobDet, detCmd = m.jobDet.Update(msg)
 	m.shell, shcmd = m.shell.Update(msg)
 
-	return tea.Batch(concmd, newcmd, runCmd, shcmd)
+	return tea.Batch(concmd, newcmd, runCmd, jobCmd, detCmd, shcmd)
 
 }
 
@@ -142,7 +187,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.active == removedID {
 			m.active = uuid.Nil
 			m.currMod = Conns
-			m.shell.SetCon(nil, nil)
+			m.shell.SetCon(uuid.Nil, nil, nil)
 		}
 		return m, tea.Batch(
 			concmd,
@@ -159,8 +204,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		m.currMod = Shell
-		m.shell.SetCon(clients[msg.Id].comcon, &clients[msg.Id].history)
+		m.shell.SetCon(clients[msg.Id].conid, clients[msg.Id].comcon, &clients[msg.Id].history)
 		m.active = clients[msg.Id].conid
+		return m, waitForResponse(NotificationChan)
+	case connlist.ShowJobsReq:
+		if msg.Id > len(clients)-1 {
+			return m, waitForResponse(NotificationChan)
+		}
+		conn := clients[msg.Id]
+		m.active = conn.conid
+		m.currMod = Jobs
+		m.jobList.SetConnection(conn.conid)
+		m.jobList.SetJobs(buildJobListItems(m.jobsByConnection[conn.conid]))
 		return m, waitForResponse(NotificationChan)
 	case connlist.RunAllConnReq:
 		m.currMod = RunAll
@@ -228,6 +283,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.shell.Refresh()
 		}
 		return m, waitForResponse(NotificationChan)
+	case joblist.JobSelected:
+		if job, ok := m.jobIndex[msg.JobID]; ok {
+			m.selectedJob = job.ID
+			m.currMod = JobDetail
+			m.jobDet.SetDetail(buildJobDetail(job))
+		}
+		return m, waitForResponse(NotificationChan)
+	case jobmsgs.StartedMsg:
+		m.handleJobStarted(msg)
+		return m, waitForResponse(NotificationChan)
+	case jobmsgs.OutputMsg:
+		m.handleJobOutput(msg)
+		return m, waitForResponse(NotificationChan)
+	case jobmsgs.CompletedMsg:
+		m.handleJobCompleted(msg)
+		return m, waitForResponse(NotificationChan)
 	case connshell.RunExecutableUpdate:
 		newshell, shcmd := m.shell.Update(msg)
 		m.shell = newshell
@@ -258,6 +329,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.newCon, cmd = m.newCon.Update(msg)
 	case RunAll:
 		m.runAll, cmd = m.runAll.Update(msg)
+	case Jobs:
+		m.jobList, cmd = m.jobList.Update(msg)
+	case JobDetail:
+		m.jobDet, cmd = m.jobDet.Update(msg)
 	case Shell:
 		m.shell, cmd = m.shell.Update(msg)
 	}
@@ -274,6 +349,10 @@ func (m Model) View() string {
 		return m.newCon.View()
 	case RunAll:
 		return m.runAll.View()
+	case Jobs:
+		return m.jobList.View()
+	case JobDetail:
+		return m.jobDet.View()
 	case Shell:
 		return m.shell.View()
 	default:
@@ -291,6 +370,110 @@ func main() {
 	}
 }
 
+func (m *Model) handleJobStarted(msg jobmsgs.StartedMsg) {
+	job := &Job{
+		ID:            msg.JobID,
+		ConnectionID:  msg.ConnectionID,
+		Command:       msg.Command,
+		Source:        msg.Source,
+		Stdout:        []string{},
+		Stderr:        []string{},
+		StartedAt:     time.Now(),
+		LastUpdatedAt: time.Now(),
+	}
+
+	m.jobsByConnection[msg.ConnectionID] = append(m.jobsByConnection[msg.ConnectionID], job)
+	m.jobIndex[msg.JobID] = job
+
+	if m.currMod == Jobs && m.active == msg.ConnectionID {
+		m.jobList.Upsert(jobToListItem(job))
+	}
+
+	if m.currMod == JobDetail && m.selectedJob == msg.JobID {
+		m.jobDet.SetDetail(buildJobDetail(job))
+	}
+}
+
+func (m *Model) handleJobOutput(msg jobmsgs.OutputMsg) {
+	job, ok := m.jobIndex[msg.JobID]
+	if !ok {
+		return
+	}
+
+	switch msg.Stream {
+	case jobmsgs.StreamStdout:
+		job.Stdout = append(job.Stdout, msg.Data)
+	case jobmsgs.StreamStderr:
+		job.Stderr = append(job.Stderr, msg.Data)
+	}
+	job.LastUpdatedAt = time.Now()
+
+	if m.currMod == Jobs && m.active == msg.ConnectionID {
+		m.jobList.Upsert(jobToListItem(job))
+	}
+
+	if m.currMod == JobDetail && m.selectedJob == msg.JobID {
+		m.jobDet.SetDetail(buildJobDetail(job))
+	}
+}
+
+func (m *Model) handleJobCompleted(msg jobmsgs.CompletedMsg) {
+	job, ok := m.jobIndex[msg.JobID]
+	if !ok {
+		return
+	}
+
+	job.ReturnCode = &msg.ReturnCode
+	now := time.Now()
+	job.CompletedAt = &now
+	job.LastUpdatedAt = now
+
+	if m.currMod == Jobs && m.active == msg.ConnectionID {
+		m.jobList.Upsert(jobToListItem(job))
+	}
+
+	if m.currMod == JobDetail && m.selectedJob == msg.JobID {
+		m.jobDet.SetDetail(buildJobDetail(job))
+	}
+}
+
+func jobStatusString(job *Job) string {
+	if job.ReturnCode == nil {
+		return string(JobStatusRunning)
+	}
+	return fmt.Sprintf("%s (%d)", JobStatusCompleted, *job.ReturnCode)
+}
+
+func buildJobListItems(jobs []*Job) []joblist.Item {
+	items := make([]joblist.Item, 0, len(jobs))
+	for _, job := range jobs {
+		items = append(items, jobToListItem(job))
+	}
+	return items
+}
+
+func jobToListItem(job *Job) joblist.Item {
+	return joblist.Item{
+		JobID:        job.ID,
+		ConnectionID: job.ConnectionID,
+		Command:      job.Command,
+		Status:       jobStatusString(job),
+		LastUpdated:  job.LastUpdatedAt,
+		ReturnCode:   job.ReturnCode,
+	}
+}
+
+func buildJobDetail(job *Job) jobdetail.Detail {
+	return jobdetail.Detail{
+		JobID:      job.ID,
+		Command:    job.Command,
+		Status:     jobStatusString(job),
+		ReturnCode: job.ReturnCode,
+		Stdout:     strings.Join(job.Stdout, ""),
+		Stderr:     strings.Join(job.Stderr, ""),
+	}
+}
+
 func appendHistory(id uuid.UUID, entry string) {
 	for idx := range clients {
 		if clients[idx].conid == id {
@@ -304,38 +487,49 @@ func dispatchRunAll(rawCommand string) {
 	cmd, args := splitCommandInput(rawCommand)
 	for _, conn := range clients {
 		conn := conn
-		go runCommandForConnection(conn, rawCommand, cmd, args)
+		jobID := uuid.New()
+		NotificationChan <- jobmsgs.StartedMsg{JobID: jobID, ConnectionID: conn.conid, Command: rawCommand, Source: jobmsgs.SourceRunAll}
+		go runCommandForConnection(conn, rawCommand, cmd, args, jobID)
 	}
 }
 
-func runCommandForConnection(conn Connection, rawCommand, command, args string) {
+func runCommandForConnection(conn Connection, rawCommand, command, args string, jobID uuid.UUID) {
 	if conn.comcon == nil {
 		NotificationChan <- runAllOutputMsg{ID: conn.conid, Output: "Connection not ready\n", IsError: true}
+		NotificationChan <- jobmsgs.OutputMsg{JobID: jobID, ConnectionID: conn.conid, Data: "Connection not ready\n", Stream: jobmsgs.StreamStderr}
+		NotificationChan <- jobmsgs.CompletedMsg{JobID: jobID, ConnectionID: conn.conid, ReturnCode: -1}
 		return
 	}
 
 	if command == "" {
 		NotificationChan <- runAllOutputMsg{ID: conn.conid, Output: "Invalid command\n", IsError: true}
+		NotificationChan <- jobmsgs.OutputMsg{JobID: jobID, ConnectionID: conn.conid, Data: "Invalid command\n", Stream: jobmsgs.StreamStderr}
+		NotificationChan <- jobmsgs.CompletedMsg{JobID: jobID, ConnectionID: conn.conid, ReturnCode: -1}
 		return
 	}
 
 	NotificationChan <- runAllStartMsg{ID: conn.conid, Command: rawCommand}
 
-	_, err := commoncommands.ExecuteCommand(command, args, conn.comcon, commoncommands.Callbacks{
+	retCode, err := commoncommands.ExecuteCommand(command, args, conn.comcon, commoncommands.Callbacks{
 		Stdout: func(data []byte) {
 			NotificationChan <- runAllOutputMsg{ID: conn.conid, Output: string(data)}
+			NotificationChan <- jobmsgs.OutputMsg{JobID: jobID, ConnectionID: conn.conid, Data: string(data), Stream: jobmsgs.StreamStdout}
 		},
 		Stderr: func(data []byte) {
 			NotificationChan <- runAllOutputMsg{ID: conn.conid, Output: string(data), IsError: true}
-		},
-		Complete: func(code int32) {
-			NotificationChan <- runAllResultMsg{ID: conn.conid, ReturnCode: code}
+			NotificationChan <- jobmsgs.OutputMsg{JobID: jobID, ConnectionID: conn.conid, Data: string(data), Stream: jobmsgs.StreamStderr}
 		},
 	})
 	if err != nil {
 		NotificationChan <- runAllOutputMsg{ID: conn.conid, Output: err.Error() + "\n", IsError: true}
+		NotificationChan <- jobmsgs.OutputMsg{JobID: jobID, ConnectionID: conn.conid, Data: err.Error() + "\n", Stream: jobmsgs.StreamStderr}
+		NotificationChan <- jobmsgs.CompletedMsg{JobID: jobID, ConnectionID: conn.conid, ReturnCode: -1}
 		NotificationChan <- runAllResultMsg{ID: conn.conid, ReturnCode: -1}
+		return
 	}
+
+	NotificationChan <- jobmsgs.CompletedMsg{JobID: jobID, ConnectionID: conn.conid, ReturnCode: retCode}
+	NotificationChan <- runAllResultMsg{ID: conn.conid, ReturnCode: retCode}
 }
 
 func splitCommandInput(input string) (string, string) {
