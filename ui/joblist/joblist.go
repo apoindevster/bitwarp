@@ -16,15 +16,16 @@ var NotificationChan chan tea.Msg
 
 type keyMap struct {
 	Select key.Binding
+	Cancel key.Binding
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Select}
+	return []key.Binding{k.Select, k.Cancel}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Select},
+		{k.Select, k.Cancel},
 	}
 }
 
@@ -32,6 +33,10 @@ var keys = keyMap{
 	Select: key.NewBinding(
 		key.WithKeys("enter"),
 		key.WithHelp("enter", "Open job detail"),
+	),
+	Cancel: key.NewBinding(
+		key.WithKeys("x"),
+		key.WithHelp("x", "Cancel job"),
 	),
 }
 
@@ -70,6 +75,10 @@ type Model struct {
 }
 
 type JobSelected struct {
+	JobID uuid.UUID
+}
+
+type JobCancelRequest struct {
 	JobID uuid.UUID
 }
 
@@ -138,6 +147,13 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			go func(jobID uuid.UUID) {
 				NotificationChan <- JobSelected{JobID: jobID}
+			}(m.items[m.List.Index()].JobID)
+		case key.Matches(msg, m.keys.Cancel):
+			if len(m.items) == 0 || m.List.Index() < 0 || m.List.Index() >= len(m.items) {
+				return m, nil
+			}
+			go func(jobID uuid.UUID) {
+				NotificationChan <- JobCancelRequest{JobID: jobID}
 			}(m.items[m.List.Index()].JobID)
 		}
 	case tea.WindowSizeMsg:

@@ -1,6 +1,10 @@
 package jobs
 
-import "github.com/google/uuid"
+import (
+	"context"
+
+	"github.com/google/uuid"
+)
 
 type Stream int
 
@@ -21,6 +25,7 @@ type StartedMsg struct {
 	ConnectionID uuid.UUID
 	Command      string
 	Source       Source
+	Cancel       context.CancelFunc
 }
 
 type OutputMsg struct {

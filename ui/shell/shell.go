@@ -1,6 +1,8 @@
 package shell
 
 import (
+	"context"
+	"errors"
 	"strings"
 
 	"github.com/apoindevster/bitwarp/proto"
@@ -81,9 +83,11 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 					cmd, args := splitCommandInput(input)
 					jobID := uuid.New()
 					connID := m.connID
-					NotificationChan <- jobmsgs.StartedMsg{JobID: jobID, ConnectionID: connID, Command: input, Source: jobmsgs.SourceShell}
-					go func(jobID uuid.UUID, connectionID uuid.UUID, command, argLine string, client *proto.CommandClient) {
-						retCode, err := commoncommands.ExecuteCommand(command, argLine, client, commoncommands.Callbacks{
+					ctx, cancel := context.WithCancel(context.Background())
+					NotificationChan <- jobmsgs.StartedMsg{JobID: jobID, ConnectionID: connID, Command: input, Source: jobmsgs.SourceShell, Cancel: cancel}
+					go func(jobID uuid.UUID, connectionID uuid.UUID, command, argLine string, client *proto.CommandClient, ctx context.Context, cancel context.CancelFunc) {
+						defer cancel()
+						retCode, err := commoncommands.ExecuteCommand(ctx, command, argLine, client, commoncommands.Callbacks{
 							Stdout: func(data []byte) {
 								NotificationChan <- RunExecutableUpdate{appstring: string(data)}
 								NotificationChan <- jobmsgs.OutputMsg{JobID: jobID, ConnectionID: connectionID, Data: string(data), Stream: jobmsgs.StreamStdout}
@@ -94,13 +98,20 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 							},
 						})
 						if err != nil {
+							if errors.Is(err, context.Canceled) {
+								msg := "Command cancelled\n"
+								NotificationChan <- RunExecutableUpdate{appstring: msg}
+								NotificationChan <- jobmsgs.OutputMsg{JobID: jobID, ConnectionID: connectionID, Data: msg, Stream: jobmsgs.StreamStderr}
+								NotificationChan <- jobmsgs.CompletedMsg{JobID: jobID, ConnectionID: connectionID, ReturnCode: -2}
+								return
+							}
 							NotificationChan <- RunExecutableUpdate{appstring: err.Error() + "\n"}
 							NotificationChan <- jobmsgs.OutputMsg{JobID: jobID, ConnectionID: connectionID, Data: err.Error() + "\n", Stream: jobmsgs.StreamStderr}
 							NotificationChan <- jobmsgs.CompletedMsg{JobID: jobID, ConnectionID: connectionID, ReturnCode: -1}
 							return
 						}
 						NotificationChan <- jobmsgs.CompletedMsg{JobID: jobID, ConnectionID: connectionID, ReturnCode: retCode}
-					}(jobID, connID, cmd, args, m.Conn)
+					}(jobID, connID, cmd, args, m.Conn, ctx, cancel)
 				}
 				if m.history != nil {
 					*m.history = append(*m.history, input+"\n")

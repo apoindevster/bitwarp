@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -55,6 +57,7 @@ type Job struct {
 	StartedAt     time.Time
 	CompletedAt   *time.Time
 	LastUpdatedAt time.Time
+	Cancel        context.CancelFunc
 }
 
 // Global but keeps track of all the connection in the client list.
@@ -180,6 +183,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, waitForResponse(NotificationChan)
 		}
 		removedID := clients[msg.Id].conid
+		m.cancelJobsForConnection(removedID)
 		clients[msg.Id].con.Close()
 		clients = append(clients[:msg.Id], clients[msg.Id+1:]...)
 		newconns, concmd := m.conns.Update(msg)
@@ -283,13 +287,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.shell.Refresh()
 		}
 		return m, waitForResponse(NotificationChan)
-	case joblist.JobSelected:
-		if job, ok := m.jobIndex[msg.JobID]; ok {
-			m.selectedJob = job.ID
-			m.currMod = JobDetail
-			m.jobDet.SetDetail(buildJobDetail(job))
-		}
-		return m, waitForResponse(NotificationChan)
+case joblist.JobSelected:
+	if job, ok := m.jobIndex[msg.JobID]; ok {
+		m.selectedJob = job.ID
+		m.currMod = JobDetail
+		m.jobDet.SetDetail(buildJobDetail(job))
+	}
+	return m, waitForResponse(NotificationChan)
+case joblist.JobCancelRequest:
+	m.cancelJob(msg.JobID)
+	return m, waitForResponse(NotificationChan)
 	case jobmsgs.StartedMsg:
 		m.handleJobStarted(msg)
 		return m, waitForResponse(NotificationChan)
@@ -380,10 +387,16 @@ func (m *Model) handleJobStarted(msg jobmsgs.StartedMsg) {
 		Stderr:        []string{},
 		StartedAt:     time.Now(),
 		LastUpdatedAt: time.Now(),
+		Cancel:        msg.Cancel,
 	}
 
 	m.jobsByConnection[msg.ConnectionID] = append(m.jobsByConnection[msg.ConnectionID], job)
 	m.jobIndex[msg.JobID] = job
+
+	if !m.connectionExists(msg.ConnectionID) && job.Cancel != nil {
+		job.Cancel()
+		job.Cancel = nil
+	}
 
 	if m.currMod == Jobs && m.active == msg.ConnectionID {
 		m.jobList.Upsert(jobToListItem(job))
@@ -427,6 +440,7 @@ func (m *Model) handleJobCompleted(msg jobmsgs.CompletedMsg) {
 	now := time.Now()
 	job.CompletedAt = &now
 	job.LastUpdatedAt = now
+	job.Cancel = nil
 
 	if m.currMod == Jobs && m.active == msg.ConnectionID {
 		m.jobList.Upsert(jobToListItem(job))
@@ -440,6 +454,9 @@ func (m *Model) handleJobCompleted(msg jobmsgs.CompletedMsg) {
 func jobStatusString(job *Job) string {
 	if job.ReturnCode == nil {
 		return string(JobStatusRunning)
+	}
+	if *job.ReturnCode == -2 {
+		return "cancelled"
 	}
 	return fmt.Sprintf("%s (%d)", JobStatusCompleted, *job.ReturnCode)
 }
@@ -488,16 +505,19 @@ func dispatchRunAll(rawCommand string) {
 	for _, conn := range clients {
 		conn := conn
 		jobID := uuid.New()
-		NotificationChan <- jobmsgs.StartedMsg{JobID: jobID, ConnectionID: conn.conid, Command: rawCommand, Source: jobmsgs.SourceRunAll}
-		go runCommandForConnection(conn, rawCommand, cmd, args, jobID)
+		ctx, cancel := context.WithCancel(context.Background())
+		NotificationChan <- jobmsgs.StartedMsg{JobID: jobID, ConnectionID: conn.conid, Command: rawCommand, Source: jobmsgs.SourceRunAll, Cancel: cancel}
+		go runCommandForConnection(conn, rawCommand, cmd, args, jobID, ctx, cancel)
 	}
 }
 
-func runCommandForConnection(conn Connection, rawCommand, command, args string, jobID uuid.UUID) {
+func runCommandForConnection(conn Connection, rawCommand, command, args string, jobID uuid.UUID, ctx context.Context, cancel context.CancelFunc) {
+	defer cancel()
 	if conn.comcon == nil {
 		NotificationChan <- runAllOutputMsg{ID: conn.conid, Output: "Connection not ready\n", IsError: true}
 		NotificationChan <- jobmsgs.OutputMsg{JobID: jobID, ConnectionID: conn.conid, Data: "Connection not ready\n", Stream: jobmsgs.StreamStderr}
 		NotificationChan <- jobmsgs.CompletedMsg{JobID: jobID, ConnectionID: conn.conid, ReturnCode: -1}
+		NotificationChan <- runAllResultMsg{ID: conn.conid, ReturnCode: -1}
 		return
 	}
 
@@ -505,12 +525,13 @@ func runCommandForConnection(conn Connection, rawCommand, command, args string, 
 		NotificationChan <- runAllOutputMsg{ID: conn.conid, Output: "Invalid command\n", IsError: true}
 		NotificationChan <- jobmsgs.OutputMsg{JobID: jobID, ConnectionID: conn.conid, Data: "Invalid command\n", Stream: jobmsgs.StreamStderr}
 		NotificationChan <- jobmsgs.CompletedMsg{JobID: jobID, ConnectionID: conn.conid, ReturnCode: -1}
+		NotificationChan <- runAllResultMsg{ID: conn.conid, ReturnCode: -1}
 		return
 	}
 
 	NotificationChan <- runAllStartMsg{ID: conn.conid, Command: rawCommand}
 
-	retCode, err := commoncommands.ExecuteCommand(command, args, conn.comcon, commoncommands.Callbacks{
+	retCode, err := commoncommands.ExecuteCommand(ctx, command, args, conn.comcon, commoncommands.Callbacks{
 		Stdout: func(data []byte) {
 			NotificationChan <- runAllOutputMsg{ID: conn.conid, Output: string(data)}
 			NotificationChan <- jobmsgs.OutputMsg{JobID: jobID, ConnectionID: conn.conid, Data: string(data), Stream: jobmsgs.StreamStdout}
@@ -521,6 +542,14 @@ func runCommandForConnection(conn Connection, rawCommand, command, args string, 
 		},
 	})
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			msg := "Command cancelled\n"
+			NotificationChan <- runAllOutputMsg{ID: conn.conid, Output: msg, IsError: true}
+			NotificationChan <- jobmsgs.OutputMsg{JobID: jobID, ConnectionID: conn.conid, Data: msg, Stream: jobmsgs.StreamStderr}
+			NotificationChan <- jobmsgs.CompletedMsg{JobID: jobID, ConnectionID: conn.conid, ReturnCode: -2}
+			NotificationChan <- runAllResultMsg{ID: conn.conid, ReturnCode: -2}
+			return
+		}
 		NotificationChan <- runAllOutputMsg{ID: conn.conid, Output: err.Error() + "\n", IsError: true}
 		NotificationChan <- jobmsgs.OutputMsg{JobID: jobID, ConnectionID: conn.conid, Data: err.Error() + "\n", Stream: jobmsgs.StreamStderr}
 		NotificationChan <- jobmsgs.CompletedMsg{JobID: jobID, ConnectionID: conn.conid, ReturnCode: -1}
@@ -542,4 +571,32 @@ func splitCommandInput(input string) (string, string) {
 		return trimmed, ""
 	}
 	return command, strings.TrimSpace(args)
+}
+
+func (m *Model) cancelJobsForConnection(connID uuid.UUID) {
+	jobs := m.jobsByConnection[connID]
+	for _, job := range jobs {
+		if job.ReturnCode == nil && job.Cancel != nil {
+			job.Cancel()
+			job.Cancel = nil
+		}
+	}
+}
+
+func (m *Model) cancelJob(jobID uuid.UUID) {
+	job, ok := m.jobIndex[jobID]
+	if !ok || job.ReturnCode != nil || job.Cancel == nil {
+		return
+	}
+	job.Cancel()
+	job.Cancel = nil
+}
+
+func (m *Model) connectionExists(id uuid.UUID) bool {
+	for _, conn := range clients {
+		if conn.conid == id {
+			return true
+		}
+	}
+	return false
 }
