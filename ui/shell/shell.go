@@ -5,10 +5,12 @@ import (
 
 	"github.com/apoindevster/bitwarp/proto"
 	commoncommands "github.com/apoindevster/bitwarp/ui/common/commands"
+	jobmsgs "github.com/apoindevster/bitwarp/ui/common/jobs"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/google/uuid"
 )
 
 type Model struct {
@@ -17,6 +19,7 @@ type Model struct {
 	Conn      *proto.CommandClient
 	err       error
 	history   *[]string
+	connID    uuid.UUID
 }
 
 var NotificationChan chan tea.Msg
@@ -47,7 +50,8 @@ func (m Model) Init() tea.Cmd {
 	return nil
 }
 
-func (m *Model) SetCon(conn *proto.CommandClient, history *[]string) {
+func (m *Model) SetCon(connID uuid.UUID, conn *proto.CommandClient, history *[]string) {
+	m.connID = connID
 	m.Conn = conn
 	m.history = history
 	m.Refresh()
@@ -75,21 +79,32 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 					NotificationChan <- RunExecutableUpdate{appstring: "Connection not ready\n"}
 				} else {
 					cmd, args := splitCommandInput(input)
-					go func(command, argLine string, client *proto.CommandClient) {
-						_, err := commoncommands.ExecuteCommand(command, argLine, client, commoncommands.Callbacks{
+					jobID := uuid.New()
+					connID := m.connID
+					NotificationChan <- jobmsgs.StartedMsg{JobID: jobID, ConnectionID: connID, Command: input, Source: jobmsgs.SourceShell}
+					go func(jobID uuid.UUID, connectionID uuid.UUID, command, argLine string, client *proto.CommandClient) {
+						retCode, err := commoncommands.ExecuteCommand(command, argLine, client, commoncommands.Callbacks{
 							Stdout: func(data []byte) {
 								NotificationChan <- RunExecutableUpdate{appstring: string(data)}
+								NotificationChan <- jobmsgs.OutputMsg{JobID: jobID, ConnectionID: connectionID, Data: string(data), Stream: jobmsgs.StreamStdout}
 							},
 							Stderr: func(data []byte) {
 								NotificationChan <- RunExecutableUpdate{appstring: string(data)}
+								NotificationChan <- jobmsgs.OutputMsg{JobID: jobID, ConnectionID: connectionID, Data: string(data), Stream: jobmsgs.StreamStderr}
 							},
 						})
 						if err != nil {
 							NotificationChan <- RunExecutableUpdate{appstring: err.Error() + "\n"}
+							NotificationChan <- jobmsgs.OutputMsg{JobID: jobID, ConnectionID: connectionID, Data: err.Error() + "\n", Stream: jobmsgs.StreamStderr}
+							NotificationChan <- jobmsgs.CompletedMsg{JobID: jobID, ConnectionID: connectionID, ReturnCode: -1}
+							return
 						}
-					}(cmd, args, m.Conn)
+						NotificationChan <- jobmsgs.CompletedMsg{JobID: jobID, ConnectionID: connectionID, ReturnCode: retCode}
+					}(jobID, connID, cmd, args, m.Conn)
 				}
-				*m.history = append(*m.history, input+"\n")
+				if m.history != nil {
+					*m.history = append(*m.history, input+"\n")
+				}
 			}
 			m.Refresh()
 			m.textInput.Reset()
@@ -103,7 +118,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.textInput.Width = msg.Width
 	case RunExecutableUpdate:
 		// The goroutine that executes the commands passes this message type back to the app so we can display it here.
-		*m.history = append(*m.history, msg.appstring)
+		if m.history != nil {
+			*m.history = append(*m.history, msg.appstring)
+		}
 		m.Refresh()
 		return m, nil
 	case error:

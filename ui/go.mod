@@ -6,7 +6,10 @@ require (
 	github.com/apoindevster/bitwarp v0.0.0-unpublished
 	github.com/apoindevster/bitwarp/commandclient v0.0.0-unpublished
 	github.com/apoindevster/bitwarp/ui/common/commands v0.0.0-unpublished
+	github.com/apoindevster/bitwarp/ui/common/jobs v0.0.0-unpublished
 	github.com/apoindevster/bitwarp/ui/connlist v0.0.0-unpublished
+	github.com/apoindevster/bitwarp/ui/jobdetail v0.0.0-unpublished
+	github.com/apoindevster/bitwarp/ui/joblist v0.0.0-unpublished
 	github.com/apoindevster/bitwarp/ui/newconn v0.0.0-unpublished
 	github.com/apoindevster/bitwarp/ui/runall v0.0.0-unpublished
 	github.com/apoindevster/bitwarp/ui/shell v0.0.0-unpublished
@@ -54,6 +57,12 @@ replace github.com/apoindevster/bitwarp/ui/connlist => ./connlist
 replace github.com/apoindevster/bitwarp/ui/newconn => ./newconn
 
 replace github.com/apoindevster/bitwarp/ui/common/commands => ./common/commands
+
+replace github.com/apoindevster/bitwarp/ui/common/jobs => ./common/jobs
+
+replace github.com/apoindevster/bitwarp/ui/joblist => ./joblist
+
+replace github.com/apoindevster/bitwarp/ui/jobdetail => ./jobdetail
 
 replace github.com/apoindevster/bitwarp/ui/runall => ./runall
 
