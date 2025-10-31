@@ -3,16 +3,35 @@ package main
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/apoindevster/bitwarp/proto"
+	commoncommands "github.com/apoindevster/bitwarp/ui/common/commands"
 	connlist "github.com/apoindevster/bitwarp/ui/connlist"
 	newconn "github.com/apoindevster/bitwarp/ui/newconn"
+	runall "github.com/apoindevster/bitwarp/ui/runall"
 	connshell "github.com/apoindevster/bitwarp/ui/shell"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 )
+
+type runAllStartMsg struct {
+	ID      uuid.UUID
+	Command string
+}
+
+type runAllOutputMsg struct {
+	ID      uuid.UUID
+	Output  string
+	IsError bool
+}
+
+type runAllResultMsg struct {
+	ID         uuid.UUID
+	ReturnCode int32
+}
 
 // Global but keeps track of all the connection in the client list.
 // TODO: Find a better way to track con and comcon simultaneously
@@ -34,6 +53,7 @@ const (
 	Conns State = iota
 	NewCon
 	Shell
+	RunAll
 )
 
 // The model that contains the current state as well as all of the sub-models for the pages intended to be shown.
@@ -41,7 +61,9 @@ type Model struct {
 	currMod State
 	conns   connlist.Model
 	newCon  newconn.Model
+	runAll  runall.Model
 	shell   connshell.Model
+	active  uuid.UUID
 }
 
 // New function to return the ELM architecture model.
@@ -50,13 +72,16 @@ func New(notif chan tea.Msg) Model {
 
 	connl := connlist.New(NotificationChan)
 	nc := newconn.New(NotificationChan)
+	ra := runall.New(NotificationChan)
 	sh := connshell.New(NotificationChan)
 
 	return Model{
 		currMod: Conns,
 		conns:   connl,
 		newCon:  nc,
+		runAll:  ra,
 		shell:   sh,
+		active:  uuid.Nil,
 	}
 
 }
@@ -64,19 +89,24 @@ func New(notif chan tea.Msg) Model {
 // Go to the previous page in the BitWarp application
 func (m *Model) decrementPage() {
 	switch m.currMod {
+	case Shell:
+		m.active = uuid.Nil
 	default:
 		m.currMod = Conns
+		return
 	}
+	m.currMod = Conns
 }
 
 // Call the ELM Architecture update function for all the sub-models in this model
 func (m *Model) updateAllModels(msg tea.Msg) tea.Cmd {
-	var concmd, newcmd, shcmd tea.Cmd
+	var concmd, newcmd, runCmd, shcmd tea.Cmd
 	m.conns, concmd = m.conns.Update(msg)
 	m.newCon, newcmd = m.newCon.Update(msg)
+	m.runAll, runCmd = m.runAll.Update(msg)
 	m.shell, shcmd = m.shell.Update(msg)
 
-	return tea.Batch(concmd, newcmd, shcmd)
+	return tea.Batch(concmd, newcmd, runCmd, shcmd)
 
 }
 
@@ -101,10 +131,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.currMod = NewCon
 		return m, waitForResponse(NotificationChan)
 	case connlist.DelConnReq:
+		if msg.Id > len(clients)-1 {
+			return m, waitForResponse(NotificationChan)
+		}
+		removedID := clients[msg.Id].conid
 		clients[msg.Id].con.Close()
 		clients = append(clients[:msg.Id], clients[msg.Id+1:]...)
 		newconns, concmd := m.conns.Update(msg)
 		m.conns = newconns
+		if m.active == removedID {
+			m.active = uuid.Nil
+			m.currMod = Conns
+			m.shell.SetCon(nil, nil)
+		}
 		return m, tea.Batch(
 			concmd,
 			waitForResponse(NotificationChan),
@@ -121,6 +160,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.currMod = Shell
 		m.shell.SetCon(clients[msg.Id].comcon, &clients[msg.Id].history)
+		m.active = clients[msg.Id].conid
+		return m, waitForResponse(NotificationChan)
+	case connlist.RunAllConnReq:
+		m.currMod = RunAll
+		m.runAll.Reset()
 		return m, waitForResponse(NotificationChan)
 	case newconn.NewConnParams:
 		m.currMod = Conns
@@ -132,7 +176,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// We can go ahead and create the command client
 		client := proto.NewCommandClient(con)
 
-		newCon := Connection{con: con, comcon: &client, history: []string{}}
+		newCon := Connection{conid: uuid.New(), con: con, comcon: &client, history: []string{}}
 		clients = append(clients, newCon)
 		newconns, concmd := m.conns.Update(connlist.NewConnReq{Item: connlist.Item{T: msg.Desc, Desc: msg.Ip + ":" + strconv.Itoa(msg.Port)}})
 		m.conns = newconns
@@ -140,6 +184,50 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			concmd,
 			waitForResponse(NotificationChan),
 		)
+	case runall.RunAllCommandMsg:
+		if strings.TrimSpace(msg.Command) == "" {
+			go func() {
+				NotificationChan <- runall.ErrorMsg{Message: "Command cannot be empty"}
+			}()
+			return m, waitForResponse(NotificationChan)
+		}
+		if len(clients) == 0 {
+			go func() {
+				NotificationChan <- runall.ErrorMsg{Message: "No active connections available"}
+			}()
+			return m, waitForResponse(NotificationChan)
+		}
+		m.currMod = Conns
+		go dispatchRunAll(msg.Command)
+		return m, waitForResponse(NotificationChan)
+	case runall.ErrorMsg:
+		m.runAll, _ = m.runAll.Update(msg)
+		return m, waitForResponse(NotificationChan)
+	case runall.SuccessMsg:
+		m.runAll, _ = m.runAll.Update(msg)
+		return m, waitForResponse(NotificationChan)
+	case runAllStartMsg:
+		appendHistory(msg.ID, fmt.Sprintf("%s\n", msg.Command))
+		if m.currMod == Shell && m.active == msg.ID {
+			m.shell.Refresh()
+		}
+		return m, waitForResponse(NotificationChan)
+	case runAllOutputMsg:
+		if msg.IsError {
+			appendHistory(msg.ID, msg.Output)
+		} else {
+			appendHistory(msg.ID, msg.Output)
+		}
+		if m.currMod == Shell && m.active == msg.ID {
+			m.shell.Refresh()
+		}
+		return m, waitForResponse(NotificationChan)
+	case runAllResultMsg:
+		appendHistory(msg.ID, fmt.Sprintf("\nCommand finished with exit code %d\n", msg.ReturnCode))
+		if m.currMod == Shell && m.active == msg.ID {
+			m.shell.Refresh()
+		}
+		return m, waitForResponse(NotificationChan)
 	case connshell.RunExecutableUpdate:
 		newshell, shcmd := m.shell.Update(msg)
 		m.shell = newshell
@@ -168,6 +256,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.conns, cmd = m.conns.Update(msg)
 	case NewCon:
 		m.newCon, cmd = m.newCon.Update(msg)
+	case RunAll:
+		m.runAll, cmd = m.runAll.Update(msg)
 	case Shell:
 		m.shell, cmd = m.shell.Update(msg)
 	}
@@ -182,6 +272,8 @@ func (m Model) View() string {
 		return m.conns.View()
 	case NewCon:
 		return m.newCon.View()
+	case RunAll:
+		return m.runAll.View()
 	case Shell:
 		return m.shell.View()
 	default:
@@ -197,4 +289,63 @@ func main() {
 		fmt.Printf("Failed to run tui interface with error: %v\n", err)
 		return
 	}
+}
+
+func appendHistory(id uuid.UUID, entry string) {
+	for idx := range clients {
+		if clients[idx].conid == id {
+			clients[idx].history = append(clients[idx].history, entry)
+			return
+		}
+	}
+}
+
+func dispatchRunAll(rawCommand string) {
+	cmd, args := splitCommandInput(rawCommand)
+	for _, conn := range clients {
+		conn := conn
+		go runCommandForConnection(conn, rawCommand, cmd, args)
+	}
+}
+
+func runCommandForConnection(conn Connection, rawCommand, command, args string) {
+	if conn.comcon == nil {
+		NotificationChan <- runAllOutputMsg{ID: conn.conid, Output: "Connection not ready\n", IsError: true}
+		return
+	}
+
+	if command == "" {
+		NotificationChan <- runAllOutputMsg{ID: conn.conid, Output: "Invalid command\n", IsError: true}
+		return
+	}
+
+	NotificationChan <- runAllStartMsg{ID: conn.conid, Command: rawCommand}
+
+	_, err := commoncommands.ExecuteCommand(command, args, conn.comcon, commoncommands.Callbacks{
+		Stdout: func(data []byte) {
+			NotificationChan <- runAllOutputMsg{ID: conn.conid, Output: string(data)}
+		},
+		Stderr: func(data []byte) {
+			NotificationChan <- runAllOutputMsg{ID: conn.conid, Output: string(data), IsError: true}
+		},
+		Complete: func(code int32) {
+			NotificationChan <- runAllResultMsg{ID: conn.conid, ReturnCode: code}
+		},
+	})
+	if err != nil {
+		NotificationChan <- runAllOutputMsg{ID: conn.conid, Output: err.Error() + "\n", IsError: true}
+		NotificationChan <- runAllResultMsg{ID: conn.conid, ReturnCode: -1}
+	}
+}
+
+func splitCommandInput(input string) (string, string) {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return "", ""
+	}
+	command, args, found := strings.Cut(trimmed, " ")
+	if !found {
+		return trimmed, ""
+	}
+	return command, strings.TrimSpace(args)
 }

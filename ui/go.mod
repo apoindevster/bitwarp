@@ -5,8 +5,10 @@ go 1.23.2
 require (
 	github.com/apoindevster/bitwarp v0.0.0-unpublished
 	github.com/apoindevster/bitwarp/commandclient v0.0.0-unpublished
+	github.com/apoindevster/bitwarp/ui/common/commands v0.0.0-unpublished
 	github.com/apoindevster/bitwarp/ui/connlist v0.0.0-unpublished
 	github.com/apoindevster/bitwarp/ui/newconn v0.0.0-unpublished
+	github.com/apoindevster/bitwarp/ui/runall v0.0.0-unpublished
 	github.com/apoindevster/bitwarp/ui/shell v0.0.0-unpublished
 	github.com/charmbracelet/bubbletea v1.3.6
 	github.com/google/uuid v1.6.0
@@ -50,5 +52,9 @@ replace github.com/apoindevster/bitwarp/ui/shell => ./shell
 replace github.com/apoindevster/bitwarp/ui/connlist => ./connlist
 
 replace github.com/apoindevster/bitwarp/ui/newconn => ./newconn
+
+replace github.com/apoindevster/bitwarp/ui/common/commands => ./common/commands
+
+replace github.com/apoindevster/bitwarp/ui/runall => ./runall
 
 replace github.com/apoindevster/bitwarp/ui/db => ./db
