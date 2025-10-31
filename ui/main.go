@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/apoindevster/bitwarp/proto"
 	commoncommands "github.com/apoindevster/bitwarp/ui/common/commands"
 	jobmsgs "github.com/apoindevster/bitwarp/ui/common/jobs"
 	connlist "github.com/apoindevster/bitwarp/ui/connlist"
+	cmdimporter "github.com/apoindevster/bitwarp/ui/importer"
 	jobdetail "github.com/apoindevster/bitwarp/ui/jobdetail"
 	joblist "github.com/apoindevster/bitwarp/ui/joblist"
 	newconn "github.com/apoindevster/bitwarp/ui/newconn"
@@ -60,6 +62,27 @@ type Job struct {
 	Cancel        context.CancelFunc
 }
 
+type commandFuture struct {
+	once sync.Once
+	code int32
+	ch   chan int32
+}
+
+func newCommandFuture() *commandFuture {
+	return &commandFuture{ch: make(chan int32, 1)}
+}
+
+func (f *commandFuture) resolve(code int32) {
+	f.ch <- code
+}
+
+func (f *commandFuture) Wait() int32 {
+	f.once.Do(func() {
+		f.code = <-f.ch
+	})
+	return f.code
+}
+
 // Global but keeps track of all the connection in the client list.
 // TODO: Find a better way to track con and comcon simultaneously
 type Connection struct {
@@ -81,6 +104,7 @@ const (
 	NewCon
 	Shell
 	RunAll
+	Import
 	Jobs
 	JobDetail
 )
@@ -92,6 +116,7 @@ type Model struct {
 	newCon           newconn.Model
 	runAll           runall.Model
 	shell            connshell.Model
+	importer         cmdimporter.Model
 	jobList          joblist.Model
 	jobDet           jobdetail.Model
 	active           uuid.UUID
@@ -110,6 +135,7 @@ func New(notif chan tea.Msg) Model {
 	jl := joblist.New(NotificationChan)
 	jd := jobdetail.New()
 	sh := connshell.New(NotificationChan)
+	imp := cmdimporter.New(NotificationChan)
 
 	return Model{
 		currMod:          Conns,
@@ -117,6 +143,7 @@ func New(notif chan tea.Msg) Model {
 		newCon:           nc,
 		runAll:           ra,
 		shell:            sh,
+		importer:         imp,
 		jobList:          jl,
 		jobDet:           jd,
 		active:           uuid.Nil,
@@ -134,6 +161,8 @@ func (m *Model) decrementPage() {
 		m.currMod = Conns
 	case RunAll:
 		m.currMod = Conns
+	case Import:
+		m.currMod = Conns
 	case Jobs:
 		m.currMod = Conns
 	case JobDetail:
@@ -146,15 +175,16 @@ func (m *Model) decrementPage() {
 
 // Call the ELM Architecture update function for all the sub-models in this model
 func (m *Model) updateAllModels(msg tea.Msg) tea.Cmd {
-	var concmd, newcmd, runCmd, jobCmd, detCmd, shcmd tea.Cmd
+	var concmd, newcmd, runCmd, importCmd, jobCmd, detCmd, shcmd tea.Cmd
 	m.conns, concmd = m.conns.Update(msg)
 	m.newCon, newcmd = m.newCon.Update(msg)
 	m.runAll, runCmd = m.runAll.Update(msg)
+	m.importer, importCmd = m.importer.Update(msg)
 	m.jobList, jobCmd = m.jobList.Update(msg)
 	m.jobDet, detCmd = m.jobDet.Update(msg)
 	m.shell, shcmd = m.shell.Update(msg)
 
-	return tea.Batch(concmd, newcmd, runCmd, jobCmd, detCmd, shcmd)
+	return tea.Batch(concmd, newcmd, runCmd, importCmd, jobCmd, detCmd, shcmd)
 
 }
 
@@ -220,6 +250,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.currMod = Jobs
 		m.jobList.SetConnection(conn.conid)
 		m.jobList.SetJobs(buildJobListItems(m.jobsByConnection[conn.conid]))
+		return m, waitForResponse(NotificationChan)
+	case connlist.ImportCommandsReq:
+		if msg.Id > len(clients)-1 {
+			return m, waitForResponse(NotificationChan)
+		}
+		conn := clients[msg.Id]
+		m.active = conn.conid
+		m.currMod = Import
+		target := "<disconnected>"
+		if conn.con != nil {
+			target = conn.con.Target()
+		}
+		desc := fmt.Sprintf("%s (%s)", conn.conid.String(), target)
+		m.importer.SetConnection(conn.conid, desc)
+		m.importer.Reset()
 		return m, waitForResponse(NotificationChan)
 	case connlist.RunAllConnReq:
 		m.currMod = RunAll
@@ -287,16 +332,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.shell.Refresh()
 		}
 		return m, waitForResponse(NotificationChan)
-case joblist.JobSelected:
-	if job, ok := m.jobIndex[msg.JobID]; ok {
-		m.selectedJob = job.ID
-		m.currMod = JobDetail
-		m.jobDet.SetDetail(buildJobDetail(job))
-	}
-	return m, waitForResponse(NotificationChan)
-case joblist.JobCancelRequest:
-	m.cancelJob(msg.JobID)
-	return m, waitForResponse(NotificationChan)
+	case joblist.JobSelected:
+		if job, ok := m.jobIndex[msg.JobID]; ok {
+			m.selectedJob = job.ID
+			m.currMod = JobDetail
+			m.jobDet.SetDetail(buildJobDetail(job))
+		}
+		return m, waitForResponse(NotificationChan)
+	case joblist.JobCancelRequest:
+		m.cancelJob(msg.JobID)
+		return m, waitForResponse(NotificationChan)
 	case jobmsgs.StartedMsg:
 		m.handleJobStarted(msg)
 		return m, waitForResponse(NotificationChan)
@@ -305,6 +350,32 @@ case joblist.JobCancelRequest:
 		return m, waitForResponse(NotificationChan)
 	case jobmsgs.CompletedMsg:
 		m.handleJobCompleted(msg)
+		return m, waitForResponse(NotificationChan)
+	case cmdimporter.ImportRequest:
+		conn := m.findConnection(msg.ConnectionID)
+		if conn == nil {
+			go func() {
+				NotificationChan <- cmdimporter.StatusMsg{Message: "Connection not found or unavailable", IsError: true}
+			}()
+			return m, waitForResponse(NotificationChan)
+		}
+		batch, err := cmdimporter.LoadCommandBatch(msg.Path)
+		if err != nil {
+			go func() {
+				NotificationChan <- cmdimporter.StatusMsg{Message: err.Error(), IsError: true}
+			}()
+			return m, waitForResponse(NotificationChan)
+		}
+		m.startCommandBatch(*conn, batch)
+		go func(count int) {
+			NotificationChan <- cmdimporter.StatusMsg{Message: fmt.Sprintf("Started import with %d commands", count), IsError: false}
+		}(len(batch.Commands))
+		m.currMod = Jobs
+		m.jobList.SetConnection(conn.conid)
+		m.jobList.SetJobs(buildJobListItems(m.jobsByConnection[conn.conid]))
+		return m, waitForResponse(NotificationChan)
+	case cmdimporter.StatusMsg:
+		m.importer, _ = m.importer.Update(msg)
 		return m, waitForResponse(NotificationChan)
 	case connshell.RunExecutableUpdate:
 		newshell, shcmd := m.shell.Update(msg)
@@ -336,6 +407,8 @@ case joblist.JobCancelRequest:
 		m.newCon, cmd = m.newCon.Update(msg)
 	case RunAll:
 		m.runAll, cmd = m.runAll.Update(msg)
+	case Import:
+		m.importer, cmd = m.importer.Update(msg)
 	case Jobs:
 		m.jobList, cmd = m.jobList.Update(msg)
 	case JobDetail:
@@ -356,6 +429,8 @@ func (m Model) View() string {
 		return m.newCon.View()
 	case RunAll:
 		return m.runAll.View()
+	case Import:
+		return m.importer.View()
 	case Jobs:
 		return m.jobList.View()
 	case JobDetail:
@@ -458,6 +533,9 @@ func jobStatusString(job *Job) string {
 	if *job.ReturnCode == -2 {
 		return "cancelled"
 	}
+	if *job.ReturnCode == -3 {
+		return "skipped"
+	}
 	return fmt.Sprintf("%s (%d)", JobStatusCompleted, *job.ReturnCode)
 }
 
@@ -498,6 +576,136 @@ func appendHistory(id uuid.UUID, entry string) {
 			return
 		}
 	}
+}
+
+func (m *Model) startCommandBatch(conn Connection, batch *cmdimporter.CommandBatch) {
+	if conn.comcon == nil {
+		go func() {
+			NotificationChan <- cmdimporter.StatusMsg{Message: "Connection not ready for import", IsError: true}
+		}()
+		return
+	}
+	go func() {
+		var (
+			prevFuture *commandFuture
+			prevCmd    *cmdimporter.CommandDefinition
+		)
+		for idx := range batch.Commands {
+			cmd := &batch.Commands[idx]
+
+			if prevCmd != nil && !prevCmd.Async && prevFuture != nil {
+				prevCode := prevFuture.Wait()
+				if !prevCmd.Expect.Evaluate(prevCode) {
+					m.skipCommand(conn, *cmd, prevCmd.Name, prevCode)
+					return
+				}
+			}
+
+			jobID := uuid.New()
+			ctx, cancel := context.WithCancel(context.Background())
+			if cmd.TimeoutSeconds != nil && *cmd.TimeoutSeconds > 0 {
+				timeoutCtx, timeoutCancel := context.WithTimeout(ctx, time.Duration(*cmd.TimeoutSeconds)*time.Second)
+				ctx = timeoutCtx
+				origCancel := cancel
+				cancel = func() {
+					origCancel()
+					timeoutCancel()
+				}
+			}
+
+			NotificationChan <- jobmsgs.StartedMsg{JobID: jobID, ConnectionID: conn.conid, Command: cmd.Name, Source: jobmsgs.SourceImport, Cancel: cancel}
+			commandLine := formatExecCommand(cmd.Exec)
+			appendHistory(conn.conid, fmt.Sprintf("[import] %s\n", commandLine))
+			NotificationChan <- jobmsgs.OutputMsg{JobID: jobID, ConnectionID: conn.conid, Data: "$ " + commandLine + "\n", Stream: jobmsgs.StreamStdout}
+
+			future := newCommandFuture()
+			cmdCopy := *cmd
+			run := func() {
+				code := m.executeImportCommand(ctx, cancel, conn, jobID, cmdCopy)
+				future.resolve(code)
+			}
+
+			if cmd.Async {
+				go run()
+				prevFuture = nil
+				prevCmd = nil
+			} else {
+				run()
+				prevFuture = future
+				prevCmd = cmd
+			}
+		}
+		NotificationChan <- cmdimporter.StatusMsg{Message: "Import sequencing finished", IsError: false}
+	}()
+}
+
+func (m *Model) executeImportCommand(ctx context.Context, cancel context.CancelFunc, conn Connection, jobID uuid.UUID, cmd cmdimporter.CommandDefinition) int32 {
+	defer cancel()
+	argLine := buildArgLine(cmd.Exec)
+	stdoutCb := func(data []byte) {
+		NotificationChan <- jobmsgs.OutputMsg{JobID: jobID, ConnectionID: conn.conid, Data: string(data), Stream: jobmsgs.StreamStdout}
+	}
+	stderrCb := func(data []byte) {
+		NotificationChan <- jobmsgs.OutputMsg{JobID: jobID, ConnectionID: conn.conid, Data: string(data), Stream: jobmsgs.StreamStderr}
+	}
+	retCode, err := commoncommands.ExecuteCommand(ctx, "exec", argLine, conn.comcon, commoncommands.Callbacks{
+		Stdout: stdoutCb,
+		Stderr: stderrCb,
+	})
+	var finalCode int32
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			finalCode = -2
+			NotificationChan <- jobmsgs.OutputMsg{JobID: jobID, ConnectionID: conn.conid, Data: "Command cancelled\n", Stream: jobmsgs.StreamStderr}
+		} else {
+			finalCode = -1
+			NotificationChan <- jobmsgs.OutputMsg{JobID: jobID, ConnectionID: conn.conid, Data: err.Error() + "\n", Stream: jobmsgs.StreamStderr}
+		}
+	} else {
+		finalCode = retCode
+	}
+	NotificationChan <- jobmsgs.CompletedMsg{JobID: jobID, ConnectionID: conn.conid, ReturnCode: finalCode}
+	return finalCode
+}
+
+func (m *Model) skipCommand(conn Connection, cmd cmdimporter.CommandDefinition, prevName string, prevReturn int32) {
+	jobID := uuid.New()
+	NotificationChan <- jobmsgs.StartedMsg{JobID: jobID, ConnectionID: conn.conid, Command: cmd.Name, Source: jobmsgs.SourceImport, Cancel: nil}
+	if prevName == "" {
+		prevName = "previous command"
+	}
+	msg := fmt.Sprintf("Skipping command %s; %s exit code %d did not satisfy expectation.\n", cmd.Name, prevName, prevReturn)
+	NotificationChan <- jobmsgs.OutputMsg{JobID: jobID, ConnectionID: conn.conid, Data: msg, Stream: jobmsgs.StreamStderr}
+	NotificationChan <- jobmsgs.CompletedMsg{JobID: jobID, ConnectionID: conn.conid, ReturnCode: -3}
+	appendHistory(conn.conid, fmt.Sprintf("[import skip] %s (prev rc %d)\n", cmd.Name, prevReturn))
+	go func() {
+		NotificationChan <- cmdimporter.StatusMsg{Message: fmt.Sprintf("Import halted at %s due to expectation failure", prevName), IsError: true}
+	}()
+}
+
+func buildArgLine(exec cmdimporter.ExecSpec) string {
+	parts := []string{exec.Command}
+	for _, arg := range exec.Args {
+		if strings.ContainsAny(arg, " \t\"") {
+			parts = append(parts, strconv.Quote(arg))
+		} else {
+			parts = append(parts, arg)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+func formatExecCommand(exec cmdimporter.ExecSpec) string {
+	return buildArgLine(exec)
+}
+
+func (m *Model) findConnection(id uuid.UUID) *Connection {
+	for idx := range clients {
+		if clients[idx].conid == id {
+			return &clients[idx]
+		}
+	}
+	return nil
 }
 
 func dispatchRunAll(rawCommand string) {

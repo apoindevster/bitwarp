@@ -1,0 +1,64 @@
+{
+  "version": "1.0",
+  "metadata": {
+    "description": "Asynchronously ping localhost, then inspect the system once the ping command has been launched."
+  },
+  "commands": [
+    {
+      "name": "background-ping",
+      "description": "Kick off a quick asynchronous ping to localhost.",
+      "async": true,
+      "exec": {
+        "command": "ping",
+        "args": [
+          "-c",
+          "4",
+          "localhost"
+        ]
+      },
+      "expect": {
+        "mode": "any"
+      }
+    },
+    {
+      "name": "list-root",
+      "description": "List the contents of the root directory.",
+      "exec": {
+        "command": "ls",
+        "args": [
+          "-lah",
+          "/"
+        ]
+      },
+      "expect": {
+        "mode": "eq",
+        "code": 1
+      }
+    },
+    {
+      "name": "show-current-users",
+      "description": "Display who is currently logged in.",
+      "exec": {
+        "command": "who"
+      },
+      "expect": {
+        "mode": "eq",
+        "code": 1
+      }
+    },
+    {
+      "name": "process-snapshot",
+      "description": "Capture a process snapshot.",
+      "exec": {
+        "command": "ps",
+        "args": [
+          "aux"
+        ]
+      },
+      "expect": {
+        "mode": "eq",
+        "code": 0
+      }
+    }
+  ]
+}
