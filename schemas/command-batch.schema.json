@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bitwarp.example.com/schemas/command-batch.schema.json",
+  "title": "BitWarp Command Batch",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "commands"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Schema version understood by the importer (e.g. 1.0)."
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Optional free-form metadata about the batch.",
+      "additionalProperties": true
+    },
+    "commands": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/command"
+      }
+    }
+  },
+  "$defs": {
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "exec", "expect"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Logical name shown in the UI/job history."
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional human-friendly context for the command."
+        },
+        "async": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, importer does not wait for completion before starting the next command."
+        },
+        "exec": {
+          "$ref": "#/$defs/execSpec"
+        },
+        "expect": {
+          "$ref": "#/$defs/expectation"
+        },
+        "timeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Optional wall-clock timeout applied to the command."
+        },
+        "env": {
+          "type": "object",
+          "description": "Optional environment overrides for the process.",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "stdin": {
+          "type": "string",
+          "description": "Optional data piped to the command’s STDIN."
+        }
+      }
+    },
+    "execSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command"],
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Binary or script to execute."
+        },
+        "args": {
+          "type": "array",
+          "description": "Positional arguments passed to the command.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "workingDir": {
+          "type": "string",
+          "description": "Optional working directory."
+        }
+      }
+    },
+    "expectation": {
+      "description": "Rules that must be satisfied by the previous command’s exit code before this command is eligible to start.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": {
+            "mode": {
+              "const": "any",
+              "description": "No exit-code gate; continues regardless of the previous command’s result."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "code"],
+          "properties": {
+            "mode": {
+              "const": "eq",
+              "description": "Require an exact exit code."
+            },
+            "code": {
+              "type": "integer"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "code"],
+          "properties": {
+            "mode": {
+              "const": "ne",
+              "description": "Require any exit code except this one."
+            },
+            "code": {
+              "type": "integer"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "codes"],
+          "properties": {
+            "mode": {
+              "enum": ["in", "notIn"],
+              "description": "Require the exit code to be included (or excluded) in a list."
+            },
+            "codes": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "integer"
+              },
+              "uniqueItems": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "min", "max"],
+          "properties": {
+            "mode": {
+              "const": "range",
+              "description": "Require the exit code to be within an inclusive range."
+            },
+            "min": {
+              "type": "integer"
+            },
+            "max": {
+              "type": "integer"
+            }
+          },
+          "allOf": [
+            {
+              "properties": {
+                "min": { "type": "integer" },
+                "max": { "type": "integer" }
+              },
+              "required": ["min", "max"]
+            },
+            {
+              "if": { "properties": { "min": { "type": "integer" } }, "required": ["min"] },
+              "then": {
+                "properties": {
+                  "max": {
+                    "type": "integer",
+                    "minimum": { "$data": "1/min" }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
